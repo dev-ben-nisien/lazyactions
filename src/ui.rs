@@ -29,9 +29,9 @@ impl Widget for &App {
             .border_style(Style::default().fg(Color::Magenta));
 
         let header_text = format!(
-            "Currently Running Jobs.\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running.\n\
-                Press `up`/`k` to increment, `down`/`j` to decrement counter",
+            "Recent job runs for: {}\n\
+                Press `Esc`, `Ctrl-C` or `q` to stop running. \n Auto-refresh every 10 seconds.",
+            self.job_details.front().map_or("N/A", |job| &job.repo)
         );
 
         let header_paragraph = Paragraph::new(header_text)

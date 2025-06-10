@@ -10,11 +10,11 @@ use std::{
 // Add these imports
 use serde::{Deserialize, Serialize};
 
-use crate::app::{self, App, RepoInfo};
+use crate::app::{App, RepoInfo};
 // To handle intermediate JSON parsing
 
 /// The frequency at which tick events are emitted.
-const TICK_FPS: f64 = 0.2;
+const TICK_FPS: f64 = 0.1;
 
 // Define the structs for GitHub data - these remain largely the same,
 // as they represent the final desired data structure.
@@ -23,6 +23,7 @@ pub struct GithubWorkflowRun {
     pub id: u64,
     pub actor_login: String,
     pub head_branch: String,
+    pub repo: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ pub struct GithubJob {
     pub id: u64,
     pub name: String,
     pub run_id: u64,
+    pub repo: String,
     pub run_url: String,
     pub actor_login: String,
     pub head_branch: String,
@@ -177,7 +179,7 @@ impl EventThread {
         "Accept: application/vnd.github+json",
         &format!("/repos/{}/{}/actions/runs", self.repo_info.owner.login, self.repo_info.name),
         "--jq",
-        ".workflow_runs[0:3] | .[] | {id: .id, actor_login: .actor.login, head_branch: .head_branch}",
+        ".workflow_runs[0:3] | .[] | {id: .id, actor_login: .actor.login, head_branch: .head_branch, repo: .repository.full_name}",
     ])?;
 
         let mut gh_runs: Vec<GithubWorkflowRun> = Vec::new();
@@ -195,6 +197,7 @@ impl EventThread {
             let current_run_id = run.id;
             let current_actor_login = run.actor_login.clone();
             let current_head_branch = run.head_branch.clone();
+            let repo_name = run.repo.clone();
             workflow_runs.push(run);
 
             // 2. Fetch jobs for each run using `gh api` and jq
@@ -214,8 +217,8 @@ impl EventThread {
                 // Filter jobs:
                 // - if status is 'in_progress'
                 // - OR if conclusion is 'success' or 'failure'
-                ".\"jobs\"[] | select(.status == \"in_progress\" or (.conclusion == \"success\" or .conclusion == \"failure\")) | {{id: .id, name: .name, run_id: {}, run_url: .run_url, actor_login: \"{}\", head_branch: \"{}\", status: .status, conclusion: .conclusion, started_at: .started_at, completed_at: .completed_at, html_url: .html_url}}",
-                current_run_id, current_actor_login, current_head_branch // Inject these into jq
+                ".\"jobs\"[] | select(.status == \"in_progress\" or (.conclusion == \"success\" or .conclusion == \"failure\")) | {{id: .id, name: .name, run_id: {}, run_url: .run_url, actor_login: \"{}\", head_branch: \"{}\", status: .status, conclusion: .conclusion, started_at: .started_at, completed_at: .completed_at, html_url: .html_url, repo: \"{}\"}}",
+                current_run_id, current_actor_login, current_head_branch, repo_name // Inject these into jq
             ),
         ])?;
 
@@ -243,11 +246,13 @@ impl EventThread {
     fn run(self) -> color_eyre::Result<()> {
         let tick_interval = Duration::from_secs_f64(1.0 / TICK_FPS);
         let mut last_tick = Instant::now();
+        let mut first = true; 
         loop {
             // emit tick events at a fixed rate
             let timeout = tick_interval.saturating_sub(last_tick.elapsed());
-            if timeout == Duration::ZERO {
+            if timeout == Duration::ZERO || first {
                 last_tick = Instant::now();
+                first = false;
 
                 // Fetch GitHub data here using gh CLI and send it with the Action event
                 match self.fetch_github_workflow_data() {
