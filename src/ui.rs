@@ -30,7 +30,7 @@ impl Widget for &App {
 
         let header_text = format!(
             "Recent job runs for: {}\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running. \n Auto-refresh every 10 seconds.",
+                Press `Esc`, `Ctrl-C` or `q` to stop running. \n Auto-refresh every 5 seconds.",
             self.job_details.front().map_or("N/A", |job| &job.repo)
         );
 
@@ -201,15 +201,7 @@ impl App {
                     .fg(Color::Gray)
                     .add_modifier(Modifier::ITALIC),
             )]));
-            let max_url_width = inner_area.width.saturating_sub(2 + 3);
-            let url_content = if job.html_url.len() > max_url_width as usize {
-                format!(
-                    "{}...",
-                    &job.html_url[..(max_url_width as usize - 3).min(job.html_url.len())]
-                )
-            } else {
-                job.html_url.clone()
-            };
+            let url_content = job.html_url.clone();
             all_summary_lines.push(Line::from(vec![
                 Span::raw(format!("  {}", url_content))
                     .fg(Color::DarkGray)

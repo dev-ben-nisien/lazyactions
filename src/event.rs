@@ -14,7 +14,7 @@ use crate::app::{App, RepoInfo};
 // To handle intermediate JSON parsing
 
 /// The frequency at which tick events are emitted.
-const TICK_FPS: f64 = 0.1;
+const TICK_FPS: f64 = 0.2;
 
 // Define the structs for GitHub data - these remain largely the same,
 // as they represent the final desired data structure.
@@ -246,7 +246,7 @@ impl EventThread {
     fn run(self) -> color_eyre::Result<()> {
         let tick_interval = Duration::from_secs_f64(1.0 / TICK_FPS);
         let mut last_tick = Instant::now();
-        let mut first = true; 
+        let mut first = true;
         loop {
             // emit tick events at a fixed rate
             let timeout = tick_interval.saturating_sub(last_tick.elapsed());

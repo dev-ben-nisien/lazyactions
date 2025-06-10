@@ -1,7 +1,7 @@
 [package]
 name = "lazyactions"
-version = "0.1.0"
-description = "tui to view github actions"
+version = "0.1.1"
+description = "TUI to monitor GitHub Actions"
 authors = ["Ben <ben.farrington@nisien.ai>"]
 license = "MIT"
 edition = "2024"
