@@ -221,21 +221,8 @@ impl App {
                     } else {
                         Style::default().fg(Color::White)
                     };
-
-                let (action_part, raw_tool_workflow_service_string) =
-                    if let Some((before_delimiter, after_delimiter)) = job.name.split_once(" / ") {
-                        (after_delimiter, before_delimiter)
-                    } else {
-                        (job.name.as_str(), job.name.as_str())
-                    };
-                let tool_workflow_service_parts_for_display: Vec<&str> =
-                    raw_tool_workflow_service_string.split(" / ").collect();
-                let workflow_part = tool_workflow_service_parts_for_display
-                    .get(1)
-                    .unwrap_or(&"");
-                let service_or_sub_service_part = tool_workflow_service_parts_for_display
-                    .get(2)
-                    .unwrap_or(&"");
+                let action_part = job.name.split(" / ").last().unwrap_or(&job.name);
+                let workflow_part = job.name.as_str();
 
                 // Line 1: Index, Action (or primary name), Status, Conclusion
                 all_column_lines.push(Line::from(vec![
@@ -262,16 +249,6 @@ impl App {
                             base_style.fg(Color::LightYellow),
                         ),
                     ]));
-                } else {
-                    all_column_lines.push(Line::from(Span::raw("")));
-                }
-
-                // Line 3: Service/Sub-service (conditionally displayed and indented)
-                if !service_or_sub_service_part.is_empty() {
-                    all_column_lines.push(Line::from(vec![Span::styled(
-                        format!("    {}", service_or_sub_service_part),
-                        base_style.fg(Color::White).add_modifier(Modifier::ITALIC),
-                    )]));
                 } else {
                     all_column_lines.push(Line::from(Span::raw("")));
                 }
