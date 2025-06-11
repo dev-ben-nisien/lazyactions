@@ -218,12 +218,6 @@ impl App {
                 format!("  {} by {}", job.head_branch, job.actor_login),
                 base_style.fg(Color::Gray).add_modifier(Modifier::ITALIC),
             )]));
-            let url_content = job.html_url.clone();
-            all_summary_lines.push(Line::from(vec![
-                Span::raw(format!("  {}", url_content))
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::UNDERLINED),
-            ]));
 
             if i < actual_jobs_to_display.saturating_sub(1) {
                 all_summary_lines.push(Line::from(Span::styled(
