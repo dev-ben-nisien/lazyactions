@@ -6,6 +6,8 @@
 
 While `lazyactions` is designed for quick oversight of your action runs, for more extensive management and interaction with GitHub Actions, you might find [GAMA](https://github.com/termkit/gama) to be a valuable, feature-rich alternative.
 
+![screenshot](./screenshots/image.png "screenshot")
+
 ## Prerequisites
 
 To get `lazyactions` up and running, you'll need:
