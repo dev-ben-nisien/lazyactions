@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::RepoInfo;
 
 /// The frequency at which tick events are emitted.
-const TICK_FPS: f64 = 0.2;
+const TICK_FPS: f64 = 0.15;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GithubWorkflowRun {

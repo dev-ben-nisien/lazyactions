@@ -28,13 +28,14 @@ impl Widget for &App {
             .border_style(Style::default().fg(Color::Magenta));
 
         let header_text = format!(
-            "Recent job runs for: {}\n\
+            "Showing jobs for: {} | Fetch Status: {}\n\
                 Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
                 Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows.\n\
                 Press `Enter` to toggle job details. Auto-refresh every 5 seconds.",
             self.job_details
                 .front()
-                .map_or("N/A", |job| job.repo.as_str())
+                .map_or("N/A", |job| job.repo.as_str()),
+            self.app_state.loading_status
         );
 
         let header_paragraph = Paragraph::new(header_text)
