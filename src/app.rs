@@ -30,6 +30,7 @@ pub struct AppState {
     pub success_jobs: Vec<usize>,
     pub failure_jobs: Vec<usize>,
     pub loading_status: String, // Added for UI feedback
+    pub scroll_offset: usize,   // For scrolling through job details
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -57,7 +58,8 @@ impl Default for App {
                 in_progress_jobs: Vec::new(),
                 success_jobs: Vec::new(),
                 failure_jobs: Vec::new(),
-                loading_status: "Initializing...".to_string(), // Initial status
+                loading_status: "Initializing...".to_string(),
+                scroll_offset: 0, // Initial status
             },
         }
     }

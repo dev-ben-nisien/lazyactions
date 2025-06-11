@@ -117,7 +117,7 @@ impl App {
         );
     }
 
-    // Reusable function to render a single column of job summaries with grouping
+    // Reusable function to render a single column of job summaries with grouping and scrolling
     fn render_job_list_column(
         &self,
         area: Rect,
@@ -165,33 +165,15 @@ impl App {
             grouped_jobs.entry(tool).or_default().push(original_idx);
         }
 
-        // Each job entry takes 4 lines + 1 for separator = 5 lines total.
-        // Each group header takes 1 line + 1 for separator = 2 lines total.
-        // We'll approximate an average of 5 lines per "displayable unit" for height calculation.
-        // This makes `max_jobs_by_height` less accurate if group headers are sparse,
-        // but it's a rough estimate for overall scrolling behavior.
-        let lines_per_job_summary = 4;
-        let separator_lines = 1; // Between jobs/groups
-        let total_lines_per_job_entry = lines_per_job_summary + separator_lines;
-        let group_header_lines = 1;
-        let total_lines_per_group_header = group_header_lines + separator_lines;
-
         let available_height = inner_area.height as usize;
-        let mut current_height = 0;
-        let mut all_summary_lines: Vec<Line> = Vec::new();
+        let mut all_column_lines: Vec<Line> = Vec::new(); // Collect all lines first
 
-        let mut rendered_job_count = 0;
-        let mut global_rendered_row_index = 0; // Tracks the *visible* row for selection
+        let mut current_column_job_idx = 0; // Tracks the sequential index of jobs within the column (ignoring groups)
 
-        // Iterate through grouped jobs (BTreeMap ensures sorted order by key)
+        // Iterate through grouped jobs to build all lines, including group headers
         for (tool_name, indices_in_group) in grouped_jobs.iter() {
-            // Check if we have enough height for at least the group header
-            if current_height + total_lines_per_group_header > available_height {
-                break; // Not enough space for another group header
-            }
-
-            // Render group header
-            all_summary_lines.push(Line::from(vec![
+            // Add group header lines
+            all_column_lines.push(Line::from(vec![
                 Span::raw("── "),
                 Span::styled(
                     tool_name.clone(),
@@ -202,29 +184,14 @@ impl App {
                 ),
                 Span::raw(" ──"),
             ]));
-            all_summary_lines.push(Line::from(Span::styled(
+            all_column_lines.push(Line::from(Span::styled(
                 "─",
                 Style::default().fg(Color::DarkGray),
-            ))); // Separator below group header
-            current_height += total_lines_per_group_header;
+            )));
 
-            // Iterate through jobs within this group
+            // Add job lines within this group
             for &original_job_idx in indices_in_group {
-                // Check if we have enough height for the next job entry
-                if current_height + total_lines_per_job_entry > available_height {
-                    // If we're already scrolled past the selected row,
-                    // or if the selected row is in a later group that won't be shown,
-                    // we need to adjust scrolling if it's currently selecting nothing visible.
-                    break;
-                }
-
                 let job = &self.job_details[original_job_idx];
-
-                // Determine if this is the currently selected row globally (across all visible jobs in column)
-                // This is the new part for selection tracking
-                let is_selected_row_globally = is_selected_column
-                    && self.app_state.column_index == column_idx
-                    && self.app_state.row_index == global_rendered_row_index;
 
                 let status_style = match job.status.as_str() {
                     "completed" => Style::default().fg(Color::Green),
@@ -246,13 +213,14 @@ impl App {
                     Span::raw("")
                 };
 
-                let base_style = if is_selected_row_globally {
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default().fg(Color::White)
-                };
+                let base_style =
+                    if is_selected_column && self.app_state.row_index == current_column_job_idx {
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
 
                 // --- Robust Parsing of the job name for display ---
                 let (action_part, tool_workflow_service_parts_for_display) =
@@ -274,9 +242,9 @@ impl App {
                     .unwrap_or(&"");
 
                 // Line 1: Index, Action (or primary name), Status, Conclusion
-                all_summary_lines.push(Line::from(vec![
+                all_column_lines.push(Line::from(vec![
                     Span::styled(
-                        format!("{}. ", rendered_job_count + 1), // Number relative to column view
+                        format!("{}. ", current_column_job_idx + 1), // Index relative to column view
                         base_style.add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
@@ -291,7 +259,7 @@ impl App {
 
                 // Line 2: Workflow (conditionally displayed)
                 if !workflow_part.is_empty() {
-                    all_summary_lines.push(Line::from(vec![
+                    all_column_lines.push(Line::from(vec![
                         Span::raw("  "), // Indent for readability
                         Span::styled(
                             format!("{}", workflow_part),
@@ -299,57 +267,63 @@ impl App {
                         ),
                     ]));
                 } else {
-                    all_summary_lines.push(Line::from(Span::raw("")));
+                    all_column_lines.push(Line::from(Span::raw("")));
                 }
 
                 // Line 3: Service/Sub-service (conditionally displayed and indented)
                 if !service_or_sub_service_part.is_empty() {
-                    all_summary_lines.push(Line::from(vec![Span::styled(
+                    all_column_lines.push(Line::from(vec![Span::styled(
                         format!("    {}", service_or_sub_service_part),
                         base_style.fg(Color::White).add_modifier(Modifier::ITALIC),
                     )]));
                 } else {
-                    all_summary_lines.push(Line::from(Span::raw("")));
+                    all_column_lines.push(Line::from(Span::raw("")));
                 }
 
                 // Line 4: Branch and Actor
-                all_summary_lines.push(Line::from(vec![Span::styled(
+                all_column_lines.push(Line::from(vec![Span::styled(
                     format!("  {} by {}", job.head_branch, job.actor_login),
                     base_style
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::ITALIC),
                 )]));
 
-                current_height += total_lines_per_job_entry;
-                rendered_job_count += 1;
-                global_rendered_row_index += 1;
+                current_column_job_idx += 1; // Increment for the next job
 
                 // Add separator if it's not the last job overall, and there's space
-                if current_height + separator_lines <= available_height {
-                    all_summary_lines.push(Line::from(Span::styled(
-                        "---",
-                        Style::default().fg(Color::DarkGray),
-                    )));
-                    current_height += separator_lines;
-                }
+                // No separator if it's the very last job.
+                // We're adding separator AFTER a job, so the last job will NOT get a separator.
+                // Also, we don't want a separator at the very end of a group if the next group starts immediately.
+                // For simplicity, we add it after each job, and the group header adds its own below itself.
+                all_column_lines.push(Line::from(Span::styled(
+                    "---",
+                    Style::default().fg(Color::DarkGray),
+                )));
             }
         }
 
-        // Adjust the paragraph content and render it
-        let paragraph = Paragraph::new(all_summary_lines).wrap(Wrap { trim: false });
+        // --- Apply Scrolling Offset ---
+        // Get the relevant scroll_offset for this column. You might store this
+        // per-column in app_state if each column scrolls independently.
+        // For now, let's assume scroll_offset applies to the currently selected column.
+        let scroll_offset = if is_selected_column {
+            self.app_state.scroll_offset
+        } else {
+            0 // Other columns don't scroll unless selected
+        };
+
+        let start_index = scroll_offset.min(all_column_lines.len());
+        let end_index = (start_index + available_height).min(all_column_lines.len());
+
+        let visible_lines = &all_column_lines[start_index..end_index];
+
+        let paragraph = Paragraph::new(visible_lines.to_vec()).wrap(Wrap { trim: false });
         paragraph.render(inner_area, buf);
 
-        // --- Selection adjustment logic (Simplified for direct rendering context) ---
-        // The App's `row_index` now refers to the *absolute* index within the currently
-        // active column's `job_indices` list, not a "visible" row.
-        // We'd ideally manage the `row_index` in `App::handle_event` methods
-        // to move between jobs in the *grouped* list, not just a flat list.
-        // For rendering, we iterate through the grouped list and mark the corresponding `global_rendered_row_index`.
-
-        // To handle scrolling if the selected item is out of view, you'd usually
-        // introduce a `scroll_offset` into `App` state and use it here.
-        // For brevity, I'm omitting scroll offset logic here, assuming `global_rendered_row_index`
-        // is reset or managed by an outer scroll state.
+        // Optional: Render a scrollbar if the content overflows.
+        // This requires an additional widget (e.g., from tui-big-text or custom)
+        // or a manual buffer manipulation, which is outside the scope of this specific change.
+        // For now, the content simply scrolls.
     }
 
     fn render_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
