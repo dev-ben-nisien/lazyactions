@@ -289,23 +289,12 @@ impl App {
                 )]));
 
                 current_column_job_idx += 1; // Increment for the next job
-
-                // Add separator if it's not the last job overall, and there's space
-                // No separator if it's the very last job.
-                // We're adding separator AFTER a job, so the last job will NOT get a separator.
-                // Also, we don't want a separator at the very end of a group if the next group starts immediately.
-                // For simplicity, we add it after each job, and the group header adds its own below itself.
                 all_column_lines.push(Line::from(Span::styled(
-                    "---",
+                    "\n",
                     Style::default().fg(Color::DarkGray),
                 )));
             }
         }
-
-        // --- Apply Scrolling Offset ---
-        // Get the relevant scroll_offset for this column. You might store this
-        // per-column in app_state if each column scrolls independently.
-        // For now, let's assume scroll_offset applies to the currently selected column.
         let scroll_offset = if is_selected_column {
             self.app_state.scroll_offset
         } else {
@@ -319,11 +308,6 @@ impl App {
 
         let paragraph = Paragraph::new(visible_lines.to_vec()).wrap(Wrap { trim: false });
         paragraph.render(inner_area, buf);
-
-        // Optional: Render a scrollbar if the content overflows.
-        // This requires an additional widget (e.g., from tui-big-text or custom)
-        // or a manual buffer manipulation, which is outside the scope of this specific change.
-        // For now, the content simply scrolls.
     }
 
     fn render_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
@@ -336,8 +320,8 @@ impl App {
         let inner_area = block.inner(area);
         block.render(area, buf);
 
-        let selected_job = self.job_details.get(self.current_job_index);
-
+        let selected_job_original_index = self.get_selected_job_original_index();
+        let selected_job = selected_job_original_index.and_then(|idx| self.job_details.get(idx));
         if let Some(job) = selected_job {
             let mut details_text = Vec::new();
 
@@ -404,6 +388,46 @@ impl App {
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: false });
             paragraph.render(inner_area, buf);
+        }
+    }
+
+    /// Returns the original index into `self.job_details` for the currently
+    /// selected job in the UI, or None if no job is selected or the index is out of bounds.
+    pub fn get_selected_job_original_index(&self) -> Option<usize> {
+        let (job_indices_for_current_column, _) = self.get_current_column_data();
+
+        if job_indices_for_current_column.is_empty() {
+            return None;
+        }
+
+        // Group jobs by their "tool" to mimic rendering logic
+        let mut grouped_jobs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for &original_idx in job_indices_for_current_column {
+            let job = &self.job_details[original_idx];
+            let tool = self.parse_job_name_for_tool(&job.name);
+            grouped_jobs.entry(tool).or_default().push(original_idx);
+        }
+
+        let mut visual_job_counter = 0;
+        for (_tool_name, indices_in_group) in grouped_jobs.iter() {
+            for &original_job_idx in indices_in_group {
+                if visual_job_counter == self.app_state.row_index {
+                    return Some(original_job_idx);
+                }
+                visual_job_counter += 1;
+            }
+        }
+        None // No job found at the current row_index
+    }
+
+    /// Helper to get the job indices and color for the currently selected column.
+    /// This avoids duplicating logic in get_selected_job_original_index and render_job_list_column.
+    fn get_current_column_data(&self) -> (&[usize], Color) {
+        match self.app_state.column_index {
+            0 => (&self.app_state.in_progress_jobs, Color::Yellow),
+            1 => (&self.app_state.success_jobs, Color::Green),
+            2 => (&self.app_state.failure_jobs, Color::Red),
+            _ => (&[], Color::White), // Should not happen
         }
     }
 }
