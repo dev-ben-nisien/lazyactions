@@ -3,7 +3,10 @@ use std::collections::VecDeque;
 use crate::event::{AppEvent, Event, EventHandler};
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::{
+        self,
+        event::{KeyCode, KeyEvent, KeyModifiers},
+    },
 };
 use serde::Deserialize;
 const MAX_DISPLAYED_JOBS: usize = 300;
