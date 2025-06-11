@@ -31,7 +31,7 @@ impl Widget for &App {
         let header_text = format!(
             "Showing jobs for: {} | Fetch Status: {}\n\
                 Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
-                Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows.\n\
+                Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows, `PageUp`/`PageDown` for scrolling\n\
                 Press `Enter` to toggle job details. Auto-refresh every 5 seconds.",
             self.job_details
                 .front()

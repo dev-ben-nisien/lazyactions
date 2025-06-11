@@ -66,6 +66,8 @@ pub enum AppEvent {
     NavigateDown,
     Quit,
     ToggleDetails,
+    PageUp,
+    PageDown,
 }
 
 /// Terminal event handler.

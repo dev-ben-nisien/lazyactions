@@ -111,6 +111,8 @@ impl App {
                 AppEvent::NavigateUp => self.change_row_index(-1),
                 AppEvent::NavigateDown => self.change_row_index(1),
                 AppEvent::ToggleDetails => self.toggle_details_panel(),
+                AppEvent::PageDown => self.change_scroll_offset(25),
+                AppEvent::PageUp => self.change_scroll_offset(-25),
             },
         }
         Ok(())
@@ -124,6 +126,7 @@ impl App {
 
         // Reset row index when changing columns
         self.app_state.row_index = 0;
+        self.app_state.scroll_offset = 0; // Reset scroll offset when changing columns
 
         // When changing columns, ensure the selected job index is valid
         self.update_current_job_index_from_state();
@@ -144,6 +147,14 @@ impl App {
 
         // Update current_job_index based on the new row and column
         self.update_current_job_index_from_state();
+    }
+    fn change_scroll_offset(&mut self, delta: isize) {
+        let new_offset = self.app_state.scroll_offset as isize + delta;
+        if new_offset < 0 {
+            self.app_state.scroll_offset = 0;
+        } else {
+            self.app_state.scroll_offset = new_offset as usize;
+        }
     }
 
     fn update_current_job_index_from_state(&mut self) {
@@ -181,6 +192,8 @@ impl App {
             KeyCode::Up => self.events.send(AppEvent::NavigateUp),
             KeyCode::Down => self.events.send(AppEvent::NavigateDown),
             KeyCode::Enter => self.events.send(AppEvent::ToggleDetails),
+            KeyCode::PageDown => self.events.send(AppEvent::PageDown),
+            KeyCode::PageUp => self.events.send(AppEvent::PageUp),
             _ => {}
         }
         Ok(())
