@@ -140,10 +140,14 @@ impl App {
             return;
         }
 
-        let new_row_index = (self.app_state.row_index as isize + delta) as usize;
+        let mut new_row_index = self.app_state.row_index as isize + delta;
 
         // Ensure the row index stays within bounds
-        self.app_state.row_index = new_row_index.min(current_column_jobs.len().saturating_sub(1));
+        if new_row_index < 0 {
+            new_row_index = 0;
+        }
+        self.app_state.row_index =
+            (new_row_index as usize).min(current_column_jobs.len().saturating_sub(1));
 
         // Update current_job_index based on the new row and column
         self.update_current_job_index_from_state();
