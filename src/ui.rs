@@ -224,7 +224,7 @@ impl App {
 
                 // --- Robust Parsing of the job name for display ---
                 let (action_part, tool_workflow_service_parts_for_display) =
-                    if let Some((before_dash, after_dash)) = job.name.split_once(" - ") {
+                    if let Some((before_dash, after_dash)) = job.name.split_once(" / ") {
                         (after_dash, before_dash.split(" / ").collect::<Vec<&str>>())
                     } else {
                         (
