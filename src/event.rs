@@ -10,7 +10,7 @@ use std::{
 // Add these imports
 use serde::{Deserialize, Serialize};
 
-use crate::app::{App, RepoInfo};
+use crate::app::RepoInfo;
 // To handle intermediate JSON parsing
 
 /// The frequency at which tick events are emitted.
@@ -73,10 +73,12 @@ pub enum Event {
 #[derive(Clone, Debug)]
 pub enum AppEvent {
     /// Increment the counter.
-    Increment,
+    NavigateLeft,
     /// Decrement the counter.
-    Decrement,
+    NavigateRight,
     /// Quit the application.
+    NavigateUp,
+    NavigateDown,
     Quit,
 }
 
@@ -129,11 +131,30 @@ struct EventThread {
     sender: mpsc::Sender<Event>,
     repo_info: RepoInfo,
 }
+fn fetch_repo_info() -> color_eyre::Result<RepoInfo> {
+    let output = Command::new("gh")
+        .arg("repo")
+        .arg("view")
+        .arg("--json")
+        .arg("owner,name")
+        .output()?; // This is now a blocking call
 
+    if output.status.success() {
+        let json_str = String::from_utf8(output.stdout)?;
+        let repo_info: RepoInfo = serde_json::from_str(&json_str)?;
+        Ok(repo_info)
+    } else {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        Err(color_eyre::eyre::eyre!(
+            "Failed to fetch repo info: {}",
+            error_msg
+        ))
+    }
+}
 impl EventThread {
     /// Constructs a new instance of [`EventThread`].
     fn new(sender: mpsc::Sender<Event>) -> Self {
-        let repo_info = match App::fetch_repo_info() {
+        let repo_info = match fetch_repo_info() {
             Ok(info) => info,
             Err(e) => {
                 eprintln!("Error fetching repository info: {:?}", e);

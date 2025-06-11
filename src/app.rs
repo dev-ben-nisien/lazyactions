@@ -7,16 +7,21 @@ use ratatui::{
 };
 use serde::Deserialize;
 const MAX_DISPLAYED_JOBS: usize = 300;
-/// Application.
+
 #[derive(Debug)]
 pub struct App {
-    /// Is the application running?
     pub running: bool,
-    /// GH Jobs.
     pub job_details: VecDeque<crate::event::GithubJob>,
     pub current_job_index: usize,
-    /// Event handler.
     pub events: EventHandler,
+    pub app_state: AppState,
+}
+
+#[derive(Debug)]
+pub struct AppState {
+    pub column_index: usize,
+    pub row_index: usize,
+    pub show_details: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -37,6 +42,11 @@ impl Default for App {
             job_details: VecDeque::new(),
             current_job_index: 0,
             events: EventHandler::new(),
+            app_state: AppState {
+                column_index: 0,
+                row_index: 0,
+                show_details: false,
+            },
         }
     }
 }
@@ -64,12 +74,27 @@ impl App {
                 _ => {}
             },
             Event::App(app_event) => match app_event {
-                AppEvent::Increment => self.increment_counter(),
-                AppEvent::Decrement => self.decrement_counter(),
                 AppEvent::Quit => self.quit(),
+                AppEvent::NavigateRight => self.change_column_index(1),
+                AppEvent::NavigateLeft => self.change_column_index(-1),
+                AppEvent::NavigateUp => self.change_row_index(-1),
+                AppEvent::NavigateDown => self.change_row_index(1),
             },
         }
         Ok(())
+    }
+    fn change_column_index(&mut self, delta: isize) {
+        let new_index = (self.app_state.column_index as isize + delta) as usize;
+        if new_index < 3 {
+            self.app_state.column_index = new_index;
+        } else if new_index < 0 {
+            self.app_state.column_index = 2;
+        } else {
+            self.app_state.column_index = 0;
+        }
+    }
+    fn change_row_index(&mut self, delta: isize) {
+        self.app_state.row_index = (self.app_state.row_index as isize + delta) as usize;
     }
 
     /// Handles the key events and updates the state of [`App`].
@@ -79,9 +104,10 @@ impl App {
             KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
                 self.events.send(AppEvent::Quit)
             }
-            KeyCode::Right => self.events.send(AppEvent::Increment),
-            KeyCode::Left => self.events.send(AppEvent::Decrement),
-            // Other handlers you could add here.
+            KeyCode::Right => self.events.send(AppEvent::NavigateRight),
+            KeyCode::Left => self.events.send(AppEvent::NavigateLeft),
+            KeyCode::Up => self.events.send(AppEvent::NavigateUp),
+            KeyCode::Down => self.events.send(AppEvent::NavigateDown),
             _ => {}
         }
         Ok(())
@@ -96,14 +122,6 @@ impl App {
     /// Set running to false to quit the application.
     pub fn quit(&mut self) {
         self.running = false;
-    }
-
-    pub fn increment_counter(&mut self) {
-        self.current_job_index = self.current_job_index.saturating_add(1);
-    }
-
-    pub fn decrement_counter(&mut self) {
-        self.current_job_index = self.current_job_index.saturating_sub(1);
     }
     pub fn update_github_data(&mut self, data: Option<crate::event::WorkflowData>) {
         if let Some(workflow_data) = data {
@@ -123,26 +141,5 @@ impl App {
         }
         // If data is None (due to API error), we just keep the old data or clear it.
         // For now, we keep it, but clearing might also be an option.
-    }
-
-    pub fn fetch_repo_info() -> color_eyre::Result<RepoInfo> {
-        let output = Command::new("gh")
-            .arg("repo")
-            .arg("view")
-            .arg("--json")
-            .arg("owner,name")
-            .output()?; // This is now a blocking call
-
-        if output.status.success() {
-            let json_str = String::from_utf8(output.stdout)?;
-            let repo_info: RepoInfo = serde_json::from_str(&json_str)?;
-            Ok(repo_info)
-        } else {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(color_eyre::eyre::eyre!(
-                "Failed to fetch repo info: {}",
-                error_msg
-            ))
-        }
     }
 }
