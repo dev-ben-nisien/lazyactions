@@ -7,17 +7,16 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::event::GithubJob;
 
 impl Widget for &App {
     /// Renders the user interface widgets.
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Define the main layout to split the screen vertically
-        let chunks = Layout::default()
+        let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(7), // Fixed height for header/instructions
-                Constraint::Min(0),    // Remaining space for job details columns
+                Constraint::Min(0), // Remaining space for job details columns or columns + details
             ])
             .split(area);
 
@@ -30,8 +29,12 @@ impl Widget for &App {
 
         let header_text = format!(
             "Recent job runs for: {}\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running. \n Auto-refresh every 5 seconds.",
-            self.job_details.front().map_or("N/A", |job| &job.repo)
+                Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
+                Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows.\n\
+                Press `Enter` to toggle job details. Auto-refresh every 5 seconds.",
+            self.job_details
+                .front()
+                .map_or("N/A", |job| job.repo.as_str())
         );
 
         let header_paragraph = Paragraph::new(header_text)
@@ -41,37 +44,31 @@ impl Widget for &App {
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: false });
 
-        header_paragraph.render(chunks[0], buf);
+        header_paragraph.render(main_chunks[0], buf);
 
-        // --- Render the three job columns in the second chunk ---
-        self.render_job_columns(chunks[1], buf);
+        // --- Render the job columns and potentially the details panel ---
+        if self.app_state.show_details {
+            // Split the bottom chunk for columns and details panel
+            let app_body_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(70), // 70% for job columns
+                    Constraint::Percentage(30), // 30% for details panel
+                ])
+                .split(main_chunks[1]);
+
+            self.render_job_columns(app_body_chunks[0], buf);
+            self.render_job_details_panel(app_body_chunks[1], buf);
+        } else {
+            // Just render columns if details are not shown
+            self.render_job_columns(main_chunks[1], buf);
+        }
     }
 }
 
 impl App {
     // This new function manages the three-column layout
     fn render_job_columns(&self, area: Rect, buf: &mut Buffer) {
-        // Filter jobs into categories
-        let (mut in_progress_jobs, mut success_jobs, mut failure_jobs) =
-            (Vec::new(), Vec::new(), Vec::new());
-
-        for job in self.job_details.iter().rev() {
-            // Iterate over most recent jobs
-            match job.status.as_str() {
-                "completed" => {
-                    if let Some(conclusion) = &job.conclusion {
-                        match conclusion.as_str() {
-                            "success" => success_jobs.push(job),
-                            "failure" => failure_jobs.push(job),
-                            _ => { /* Ignore cancelled, skipped, etc. as per request */ }
-                        }
-                    }
-                }
-                "in_progress" | "queued" | "waiting" => in_progress_jobs.push(job),
-                _ => { /* Ignore other statuses if any */ }
-            }
-        }
-
         // Define the horizontal layout for the three columns
         let columns = Layout::default()
             .direction(Direction::Horizontal)
@@ -87,24 +84,27 @@ impl App {
             columns[0],
             buf,
             "In Progress",
-            &in_progress_jobs,
+            &self.app_state.in_progress_jobs,
             Color::Yellow, // Color for in progress
+            0,             // Column index for 'In Progress'
         );
 
         self.render_job_list_column(
             columns[1],
             buf,
             "Concluded Success",
-            &success_jobs,
+            &self.app_state.success_jobs,
             Color::Green, // Color for success
+            1,            // Column index for 'Concluded Success'
         );
 
         self.render_job_list_column(
             columns[2],
             buf,
             "Concluded Failure",
-            &failure_jobs,
+            &self.app_state.failure_jobs,
             Color::Red, // Color for failure
+            2,          // Column index for 'Concluded Failure'
         );
     }
 
@@ -114,19 +114,29 @@ impl App {
         area: Rect,
         buf: &mut Buffer,
         title: &str,
-        jobs: &[&GithubJob], // Correct type: slice of references to GithubJob
+        job_indices: &[usize], // Now takes a slice of original indices
         border_color: Color,
+        column_idx: usize, // New parameter for column index
     ) {
-        let block = Block::default()
-            .title(format!("{} ({})", title, jobs.len()))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color));
+        let is_selected_column = self.app_state.column_index == column_idx;
+
+        let block =
+            Block::default()
+                .title(format!("{} ({})", title, job_indices.len()))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(border_color).add_modifier(
+                    if is_selected_column {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    },
+                ));
 
         let inner_area = block.inner(area);
         block.render(area, buf);
 
-        if jobs.is_empty() {
+        if job_indices.is_empty() {
             let no_data_text = Text::styled(
                 "No jobs in this category.",
                 Style::default().fg(Color::DarkGray),
@@ -153,11 +163,14 @@ impl App {
 
         let mut all_summary_lines: Vec<Line> = Vec::new();
 
-        let num_jobs_in_category = jobs.len();
+        let num_jobs_in_category = job_indices.len();
         let actual_jobs_to_display = max_jobs_by_height.min(num_jobs_in_category);
 
         for i in 0..actual_jobs_to_display {
-            let job = jobs[i];
+            let original_job_idx = job_indices[i];
+            let job = &self.job_details[original_job_idx]; // Get the actual job data
+
+            let is_selected_row = is_selected_column && self.app_state.row_index == i;
 
             let status_style = match job.status.as_str() {
                 "completed" => Style::default().fg(Color::Green),
@@ -179,16 +192,22 @@ impl App {
                 Span::raw("")
             };
 
+            let base_style = if is_selected_row {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
             all_summary_lines.push(Line::from(vec![
                 Span::styled(
                     format!("{}. ", i + 1),
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
+                    base_style.add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("{}", job.name),
-                    Style::default().add_modifier(Modifier::BOLD),
+                    base_style.add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" [", status_style),
                 Span::styled(job.status.clone(), status_style),
@@ -197,9 +216,7 @@ impl App {
             ]));
             all_summary_lines.push(Line::from(vec![Span::styled(
                 format!("  {} by {}", job.head_branch, job.actor_login),
-                Style::default()
-                    .fg(Color::Gray)
-                    .add_modifier(Modifier::ITALIC),
+                base_style.fg(Color::Gray).add_modifier(Modifier::ITALIC),
             )]));
             let url_content = job.html_url.clone();
             all_summary_lines.push(Line::from(vec![
@@ -219,5 +236,86 @@ impl App {
         let paragraph = Paragraph::new(all_summary_lines).wrap(Wrap { trim: false });
 
         paragraph.render(inner_area, buf);
+    }
+
+    fn render_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
+        let block = Block::default()
+            .title("Job Details")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Blue));
+
+        let inner_area = block.inner(area);
+        block.render(area, buf);
+
+        let selected_job = self.job_details.get(self.current_job_index);
+
+        if let Some(job) = selected_job {
+            let mut details_text = Vec::new();
+
+            details_text.push(Line::from(vec![
+                Span::styled("Name: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.name.clone()),
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled("Repo: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.repo.clone()),
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled("Run ID: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.run_id.to_string()),
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled("Status: ", Style::default().fg(Color::LightBlue)),
+                Span::styled(
+                    job.status.clone(),
+                    match job.status.as_str() {
+                        "completed" => Style::default().fg(Color::Green),
+                        "in_progress" => Style::default().fg(Color::Yellow),
+                        "queued" | "waiting" => Style::default().fg(Color::DarkGray),
+                        _ => Style::default().fg(Color::White),
+                    },
+                ),
+            ]));
+            if let Some(conclusion) = &job.conclusion {
+                details_text.push(Line::from(vec![
+                    Span::styled("Conclusion: ", Style::default().fg(Color::LightBlue)),
+                    Span::styled(
+                        conclusion.clone(),
+                        match conclusion.as_str() {
+                            "success" => Style::default().fg(Color::LightGreen),
+                            "failure" => Style::default().fg(Color::Red),
+                            "cancelled" => Style::default().fg(Color::DarkGray),
+                            "skipped" => Style::default().fg(Color::Blue),
+                            _ => Style::default().fg(Color::White),
+                        },
+                    ),
+                ]));
+            }
+            details_text.push(Line::from(vec![
+                Span::styled("Branch: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.head_branch.clone()),
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled("Actor: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.actor_login.clone()),
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled("URL: ", Style::default().fg(Color::LightBlue)),
+                Span::raw(job.html_url.clone()).add_modifier(Modifier::UNDERLINED),
+            ]));
+
+            let paragraph = Paragraph::new(details_text).wrap(Wrap { trim: false });
+            paragraph.render(inner_area, buf);
+        } else {
+            let no_job_selected_text = Text::styled(
+                "No job selected. Use navigation keys to select a job.",
+                Style::default().fg(Color::DarkGray),
+            );
+            let paragraph = Paragraph::new(no_job_selected_text)
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: false });
+            paragraph.render(inner_area, buf);
+        }
     }
 }
