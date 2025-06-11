@@ -222,18 +222,14 @@ impl App {
                         Style::default().fg(Color::White)
                     };
 
-                // --- Robust Parsing of the job name for display ---
-                let (action_part, tool_workflow_service_parts_for_display) =
-                    if let Some((before_dash, after_dash)) = job.name.split_once(" / ") {
-                        (after_dash, before_dash.split(" / ").collect::<Vec<&str>>())
+                let (action_part, raw_tool_workflow_service_string) =
+                    if let Some((before_delimiter, after_delimiter)) = job.name.split_once(" / ") {
+                        (after_delimiter, before_delimiter)
                     } else {
-                        (
-                            job.name.as_str(),
-                            job.name.split(" / ").collect::<Vec<&str>>(),
-                        )
+                        (job.name.as_str(), job.name.as_str())
                     };
-
-                // Skip the first part (the tool) as it's handled by the group header
+                let tool_workflow_service_parts_for_display: Vec<&str> =
+                    raw_tool_workflow_service_string.split(" / ").collect();
                 let workflow_part = tool_workflow_service_parts_for_display
                     .get(1)
                     .unwrap_or(&"");
