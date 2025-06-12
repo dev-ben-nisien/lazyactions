@@ -1,3 +1,4 @@
+use crate::app::App;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -5,19 +6,18 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Paragraph, Widget, Wrap},
 };
-use std::collections::BTreeMap; // Using BTreeMap for sorted group keys
-
-use crate::app::App; // Assuming App struct is defined here
+use regex::Regex;
+use std::collections::BTreeMap; // Using BTreeMap for sorted group keys // Assuming App struct is defined here
 
 impl Widget for &App {
     /// Renders the user interface widgets.
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Define the main layout to split the screen vertically
+        // Define the main layout to split the screen vertically: Header + Body
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(7), // Fixed height for header/instructions
-                Constraint::Min(0), // Remaining space for job details columns or columns + details
+                Constraint::Min(0),    // Remaining space for job columns OR logs + details
             ])
             .split(area);
 
@@ -30,9 +30,9 @@ impl Widget for &App {
 
         let header_text = format!(
             "Showing jobs for: {} | Fetch Status: {}\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
-                Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows, `PageUp`/`PageDown` for scrolling\n\
-                Press `Enter` to toggle job details. Auto-refresh every 5 seconds.",
+             Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
+             Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows, `PageUp`/`PageDown` for scrolling\n\
+             Press `Enter` to toggle detailed view (logs & full details). Auto-refresh every 5 seconds.",
             self.job_details
                 .front()
                 .map_or("N/A", |job| job.repo.as_str()),
@@ -48,21 +48,12 @@ impl Widget for &App {
 
         header_paragraph.render(main_chunks[0], buf);
 
-        // --- Render the job columns and potentially the details panel ---
+        // --- Render the main application body based on show_details ---
         if self.app_state.show_details {
-            // Split the bottom chunk for columns and details panel
-            let app_body_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(70), // 70% for job columns
-                    Constraint::Percentage(30), // 30% for details panel
-                ])
-                .split(main_chunks[1]);
-
-            self.render_job_columns(app_body_chunks[0], buf);
-            self.render_job_details_panel(app_body_chunks[1], buf);
+            // If show_details is true, render the detailed logs and full details panels
+            self.render_detailed_view_panels(main_chunks[1], buf);
         } else {
-            // Just render columns if details are not shown
+            // Otherwise, render the three job columns
             self.render_job_columns(main_chunks[1], buf);
         }
     }
@@ -70,15 +61,13 @@ impl Widget for &App {
 
 impl App {
     // Helper to get the tool from a job name.
-    // This is the common parsing logic used for grouping and display.
     fn parse_job_name_for_tool(&self, job_name: &str) -> String {
         let parts: Vec<&str> = job_name.split(" / ").collect();
         parts.get(0).unwrap_or(&"Other").to_string()
     }
 
-    // This new function manages the three-column layout
+    // Renders the three-column job summary layout
     fn render_job_columns(&self, area: Rect, buf: &mut Buffer) {
-        // Define the horizontal layout for the three columns
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -88,14 +77,13 @@ impl App {
             ])
             .split(area);
 
-        // Render each column using the helper function
         self.render_job_list_column(
             columns[0],
             buf,
             "In Progress",
             &self.app_state.in_progress_jobs,
-            Color::Yellow, // Color for in progress
-            0,             // Column index for 'In Progress'
+            Color::Yellow,
+            0,
         );
 
         self.render_job_list_column(
@@ -103,8 +91,8 @@ impl App {
             buf,
             "Concluded Success",
             &self.app_state.success_jobs,
-            Color::Green, // Color for success
-            1,            // Column index for 'Concluded Success'
+            Color::Green,
+            1,
         );
 
         self.render_job_list_column(
@@ -112,20 +100,20 @@ impl App {
             buf,
             "Concluded Failure",
             &self.app_state.failure_jobs,
-            Color::Red, // Color for failure
-            2,          // Column index for 'Concluded Failure'
+            Color::Red,
+            2,
         );
     }
 
-    // Reusable function to render a single column of job summaries with grouping and scrolling
+    // Reusable function to render a single column of job summaries
     fn render_job_list_column(
         &self,
         area: Rect,
         buf: &mut Buffer,
         title: &str,
-        job_indices: &[usize], // Now takes a slice of original indices
+        job_indices: &[usize],
         border_color: Color,
-        column_idx: usize, // New parameter for column index
+        column_idx: usize,
     ) {
         let is_selected_column = self.app_state.column_index == column_idx;
 
@@ -283,12 +271,65 @@ impl App {
         paragraph.render(inner_area, buf);
     }
 
-    fn render_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
+    /// Renders the detailed view with Job Logs and full Job Details in a horizontal split.
+    fn render_detailed_view_panels(&self, area: Rect, buf: &mut Buffer) {
+        let detailed_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(70),
+                Constraint::Percentage(30), // 30% for Job Details (bottom)
+            ])
+            .split(area);
+
+        // Render Job Logs in the top panel
+        self.render_job_logs_panel(detailed_chunks[0], buf);
+
+        // Render Job Details in the bottom panel
+        self.render_full_job_details_panel(detailed_chunks[1], buf);
+    }
+
+    /// Renders the scrollable logs panel.
+    fn render_job_logs_panel(&self, area: Rect, buf: &mut Buffer) {
+        let block = Block::default()
+            .title("Job Logs")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Blue));
+
+        let inner_area = block.inner(area);
+        block.render(area, buf);
+
+        let logs = &self.app_state.current_job_logs;
+
+        // Compile regex for stripping timestamps and ANSI escape codes
+        let timestamp_regex = Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s").unwrap();
+        let ansi_regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+
+        let log_lines: Vec<Line> = logs
+            .lines()
+            .map(|s| {
+                // First, remove the timestamp
+                let clean_s = timestamp_regex.replace(s, "").to_string();
+                // Then, remove ANSI escape codes
+                let final_s = ansi_regex.replace_all(&clean_s, "").to_string();
+                Line::from(final_s)
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(log_lines)
+            .scroll((self.app_state.scroll_offset as u16, 0))
+            .wrap(Wrap { trim: false });
+
+        paragraph.render(inner_area, buf);
+    }
+
+    /// Renders the full job details panel (used in detailed view).
+    fn render_full_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
             .title("Job Details")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Blue));
+            .border_style(Style::default().fg(Color::LightBlue));
 
         let inner_area = block.inner(area);
         block.render(area, buf);
@@ -354,7 +395,7 @@ impl App {
             paragraph.render(inner_area, buf);
         } else {
             let no_job_selected_text = Text::styled(
-                "No job selected. Use navigation keys to select a job.",
+                "No job selected. Select a job in the main view before toggling detailed view.",
                 Style::default().fg(Color::DarkGray),
             );
             let paragraph = Paragraph::new(no_job_selected_text)

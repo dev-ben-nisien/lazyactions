@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use crate::event::{AppEvent, Event, EventHandler};
+use crate::{
+    event::{AppEvent, Event, EventHandler},
+    gh_cli::{self},
+};
 use ratatui::{
     DefaultTerminal,
     crossterm::{
@@ -14,10 +17,11 @@ const MAX_DISPLAYED_JOBS: usize = 300;
 #[derive(Debug)]
 pub struct App {
     pub running: bool,
-    pub job_details: VecDeque<crate::event::GithubJob>,
+    pub job_details: VecDeque<crate::gh_cli::GithubJob>,
     pub current_job_index: usize,
     pub events: EventHandler,
     pub app_state: AppState,
+    pub gh_cli: crate::gh_cli::GhCli,
 }
 
 #[derive(Debug)]
@@ -25,12 +29,12 @@ pub struct AppState {
     pub column_index: usize,
     pub row_index: usize,
     pub show_details: bool,
-    // Store the filtered jobs for each column to make navigation easier
-    pub in_progress_jobs: Vec<usize>, // Stores original indices from job_details
+    pub in_progress_jobs: Vec<usize>,
     pub success_jobs: Vec<usize>,
     pub failure_jobs: Vec<usize>,
-    pub loading_status: String, // Added for UI feedback
-    pub scroll_offset: usize,   // For scrolling through job details
+    pub loading_status: String,
+    pub scroll_offset: usize,
+    pub current_job_logs: String,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -46,11 +50,13 @@ pub struct Owner {
 
 impl Default for App {
     fn default() -> Self {
+        let gh_cli_instance = gh_cli::GhCli::new();
         Self {
             running: true,
             job_details: VecDeque::new(),
             current_job_index: 0,
-            events: EventHandler::new(),
+            gh_cli: gh_cli_instance.clone(),
+            events: EventHandler::new(gh_cli_instance),
             app_state: AppState {
                 column_index: 0,
                 row_index: 0,
@@ -59,7 +65,8 @@ impl Default for App {
                 success_jobs: Vec::new(),
                 failure_jobs: Vec::new(),
                 loading_status: "Initializing...".to_string(),
-                scroll_offset: 0, // Initial status
+                scroll_offset: 0,
+                current_job_logs: String::new(),
             },
         }
     }
@@ -117,22 +124,32 @@ impl App {
         }
         Ok(())
     }
+    fn get_logs_for_current_job(&self, job_id: u64) -> String {
+        let result = self
+            .gh_cli
+            .fetch_job_logs(job_id)
+            .unwrap_or_else(|_| "Failed to fetch logs".to_string());
+        result
+    }
     fn change_column_index(&mut self, delta: isize) {
+        if self.app_state.show_details {
+            return;
+        }
         let num_columns = 3;
         let new_index = (self.app_state.column_index as isize + delta) as usize;
 
-        // Ensure the new index wraps around
         self.app_state.column_index = new_index % num_columns;
 
-        // Reset row index when changing columns
         self.app_state.row_index = 0;
-        self.app_state.scroll_offset = 0; // Reset scroll offset when changing columns
+        self.app_state.scroll_offset = 0;
 
-        // When changing columns, ensure the selected job index is valid
         self.update_current_job_index_from_state();
     }
 
     fn change_row_index(&mut self, delta: isize) {
+        if self.app_state.show_details {
+            return;
+        }
         let current_column_jobs = self.get_jobs_for_current_column();
         if current_column_jobs.is_empty() {
             self.app_state.row_index = 0;
@@ -151,6 +168,9 @@ impl App {
 
         // Update current_job_index based on the new row and column
         self.update_current_job_index_from_state();
+        if self.app_state.show_details {
+            // If details are shown, fetch logs for the current job
+        }
     }
     fn change_scroll_offset(&mut self, delta: isize) {
         let new_offset = self.app_state.scroll_offset as isize + delta;
@@ -181,7 +201,13 @@ impl App {
     }
 
     fn toggle_details_panel(&mut self) {
+        if !self.app_state.show_details {
+            self.app_state.loading_status = "Loading job details...".to_string();
+            let current_job = self.job_details.get(self.current_job_index).unwrap();
+            self.app_state.current_job_logs = self.get_logs_for_current_job(current_job.id);
+        }
         self.app_state.show_details = !self.app_state.show_details;
+        self.app_state.scroll_offset = 0; // Reset scroll offset when toggling details
     }
 
     /// Handles the key events and updates the state of [`App`].
@@ -215,7 +241,7 @@ impl App {
     }
 
     // Now accepts `WorkflowData` directly
-    pub fn update_github_data(&mut self, workflow_data: crate::event::WorkflowData) {
+    pub fn update_github_data(&mut self, workflow_data: crate::gh_cli::WorkflowData) {
         self.job_details.clear();
         for job in workflow_data.jobs {
             if self.job_details.len() >= MAX_DISPLAYED_JOBS {
@@ -231,7 +257,7 @@ impl App {
 
         // Sort by started_at in descending order for better visualization
         // (most recent jobs at the top of the display lists)
-        let mut sorted_jobs: Vec<(usize, &crate::event::GithubJob)> =
+        let mut sorted_jobs: Vec<(usize, &crate::gh_cli::GithubJob)> =
             self.job_details.iter().enumerate().collect();
 
         sorted_jobs.sort_by(|(_, a), (_, b)| {
