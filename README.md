@@ -41,6 +41,8 @@ Options:
   -V, --version  Print version
 ```
 
+You can view console logs by navigating the columns using arrow keys and toggle the details panel by pressing enter.
+
 ## How It Works
 
 `lazyactions` leverages the [Ratatui](https://ratatui.rs) library to build its interactive terminal interface. The application's structure follows an [event-driven template](https://github.com/ratatui/templates/tree/main/event-driven), a common and robust pattern for TUI applications, ensuring responsiveness and maintainability.
