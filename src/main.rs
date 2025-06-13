@@ -14,15 +14,15 @@ pub mod ui;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Filter for current branch
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = false)]
     branch: bool,
 
     /// Filter for current user
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = false)]
     user: bool,
 
     /// Lastest Run Only
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = false)]
     latest: bool,
 }
 
