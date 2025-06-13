@@ -4,6 +4,7 @@ use crate::{
     event::{AppEvent, Event, EventHandler},
     gh_cli::{self},
 };
+use clap::Parser;
 use ratatui::{
     DefaultTerminal,
     crossterm::{
@@ -11,7 +12,6 @@ use ratatui::{
         event::{KeyCode, KeyEvent, KeyModifiers},
     },
 };
-use serde::Deserialize;
 const MAX_DISPLAYED_JOBS: usize = 300;
 
 #[derive(Debug)]
@@ -22,6 +22,7 @@ pub struct App {
     pub events: EventHandler,
     pub app_state: AppState,
     pub gh_cli: crate::gh_cli::GhCli,
+    pub args: crate::Args,
 }
 
 #[derive(Debug)]
@@ -37,20 +38,10 @@ pub struct AppState {
     pub current_job_logs: String,
 }
 
-#[derive(Debug, Default, Deserialize, Clone)]
-pub struct RepoInfo {
-    pub name: String,
-    pub owner: Owner,
-}
-
-#[derive(Debug, Default, Deserialize, Clone)]
-pub struct Owner {
-    pub login: String,
-}
-
 impl Default for App {
     fn default() -> Self {
-        let gh_cli_instance = gh_cli::GhCli::new();
+        let args_obj = crate::Args::parse();
+        let gh_cli_instance = gh_cli::GhCli::new(args_obj.branch, args_obj.user, args_obj.latest);
         Self {
             running: true,
             job_details: VecDeque::new(),
@@ -68,6 +59,7 @@ impl Default for App {
                 scroll_offset: 0,
                 current_job_logs: String::new(),
             },
+            args: args_obj,
         }
     }
 }
@@ -103,7 +95,6 @@ impl App {
                     }
                     Err(e) => {
                         self.app_state.loading_status = format!("Error: {}", e);
-                        eprintln!("Error fetching GitHub data: {}", e);
                     }
                 }
             }
@@ -203,8 +194,9 @@ impl App {
     fn toggle_details_panel(&mut self) {
         if !self.app_state.show_details {
             self.app_state.loading_status = "Loading job details...".to_string();
-            let current_job = self.job_details.get(self.current_job_index).unwrap();
-            self.app_state.current_job_logs = self.get_logs_for_current_job(current_job.id);
+            if let Some(current_job) = self.job_details.get(self.current_job_index) {
+                self.app_state.current_job_logs = self.get_logs_for_current_job(current_job.id);
+            }
         }
         self.app_state.show_details = !self.app_state.show_details;
         self.app_state.scroll_offset = 0; // Reset scroll offset when toggling details

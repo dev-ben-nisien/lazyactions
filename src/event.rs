@@ -106,7 +106,6 @@ impl EventThread {
                             e
                         )))),
                     }
-                    .expect("Failed to send GitHubDataFetched event");
                 });
             }
 

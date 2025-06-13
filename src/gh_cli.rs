@@ -2,8 +2,6 @@ use color_eyre::eyre::{WrapErr, eyre};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
-use crate::app::RepoInfo;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GithubWorkflowRun {
     pub id: u64,
@@ -12,6 +10,15 @@ pub struct GithubWorkflowRun {
     pub repo: String,
 }
 
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct RepoInfo {
+    pub name: String,
+    pub owner: Owner,
+}
+#[derive(Debug, Default, Deserialize, Clone)]
+pub struct Owner {
+    pub login: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GithubJob {
     pub id: u64,
@@ -59,17 +66,41 @@ pub fn fetch_repo_info() -> color_eyre::Result<RepoInfo> {
         ))
     }
 }
+// Helper function to run a command and return its stdout
+fn run_command(command_name: &str, args: &[&str], error_msg: &str) -> color_eyre::Result<String> {
+    let output = Command::new(command_name)
+        .args(args)
+        .output()
+        .wrap_err(format!("Failed to execute `{}` command", command_name))?;
 
+    if !output.status.success() {
+        return Err(eyre!(
+            "{}. Command `{}` failed with exit code {}:\nStdout: {}\nStderr: {}",
+            error_msg,
+            command_name,
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
 /// A client for interacting with the GitHub CLI.
 #[derive(Debug, Clone)]
 pub struct GhCli {
     repo_info: RepoInfo,
+    branch: bool,
+    user: bool,
+    latest: bool,
+    current_user: String,
+    current_branch: String,
 }
 
 impl GhCli {
     /// Creates a new `GhCli` instance.
     /// It requires `RepoInfo` to construct API endpoints specific to the repository.
-    pub fn new() -> Self {
+    pub fn new(branch: bool, user: bool, latest: bool) -> Self {
         let repo_info = match fetch_repo_info() {
             Ok(info) => info,
             Err(e) => {
@@ -77,9 +108,69 @@ impl GhCli {
                 RepoInfo::default() // Provide a default or handle the error appropriately
             }
         };
-        Self { repo_info }
+        // Fetch current user using `gh auth status`
+        let current_user = match Self::fetch_current_gh_user() {
+            Ok(user) => user,
+            Err(e) => {
+                eprintln!("Warning: Could not determine current GitHub user: {:?}", e);
+                String::new() // Default to empty string if not found
+            }
+        };
+
+        // Fetch current branch using `git rev-parse --abbrev-ref HEAD`
+        let current_branch = match Self::fetch_current_git_branch() {
+            Ok(branch) => branch,
+            Err(e) => {
+                eprintln!("Warning: Could not determine current Git branch: {:?}", e);
+                String::new() // Default to empty string if not found
+            }
+        };
+        if branch {}
+        Self {
+            repo_info,
+            branch,
+            user,
+            latest,
+            current_branch,
+            current_user,
+        }
     }
 
+    /// Fetches the current authenticated GitHub user's login.
+    fn fetch_current_gh_user() -> color_eyre::Result<String> {
+        // We parse the output of `gh auth status` to find the user.
+        // A typical output might look like:
+        // gh.github.com
+        //   ✓ Logged in to github.com as octocat (~/.config/gh/hosts.yml)
+        let output = run_command(
+            "gh",
+            &["auth", "status"],
+            "Failed to fetch GitHub user status",
+        )?;
+
+        // Look for the line containing "Logged in to ... as <username>"
+        output
+            .lines()
+            .find(|line| line.contains("Logged in to") && line.contains(" account "))
+            .and_then(|line| {
+                line.split(" account ")
+                    .nth(1) // Get the part after " as "
+                    .and_then(|s| s.split_whitespace().next()) // Get the first word (the username)
+                    .map(|s| s.trim_matches(|c| c == '(' || c == ')').to_string())
+            })
+            .ok_or_else(|| {
+                eyre!("Could not parse current GitHub user from `gh auth status` output")
+            })
+    }
+
+    /// Fetches the current Git branch name.
+    fn fetch_current_git_branch() -> color_eyre::Result<String> {
+        run_command(
+            "git",
+            &["rev-parse", "--abbrev-ref", "HEAD"],
+            "Failed to fetch current Git branch",
+        )
+    }
     /// Executes a `gh` CLI command and returns its stdout as a string.
     fn run_gh_command(&self, args: &[&str]) -> color_eyre::Result<String> {
         let output = Command::new("gh")
@@ -105,18 +196,32 @@ impl GhCli {
         let mut workflow_runs: Vec<GithubWorkflowRun> = Vec::new();
         let mut all_jobs: Vec<GithubJob> = Vec::new();
 
-        // 1. Fetch the LATEST 3 workflow runs
-        let runs_json_str = self.run_gh_command(&[
-            "api",
-            "-H",
-            "Accept: application/vnd.github+json",
-            &format!(
-                "/repos/{}/{}/actions/runs",
-                self.repo_info.owner.login, self.repo_info.name
-            ),
-            "--jq",
-            ".workflow_runs[0:3] | .[] | {id: .id, actor_login: .actor.login, head_branch: .head_branch, repo: .repository.full_name}",
-        ])?;
+        let mut gh_args = vec!["api", "-H", "Accept: application/vnd.github+json"];
+        let api_path = format!(
+            "/repos/{}/{}/actions/runs",
+            self.repo_info.owner.login, self.repo_info.name
+        );
+        gh_args.push(&api_path);
+        let mut jq_filters = Vec::new();
+        jq_filters.push(format!(
+            ".workflow_runs[0:{}]",
+            self.latest.then_some(1).unwrap_or(3)
+        ));
+        jq_filters.push(".[]".to_string());
+        if self.user {
+            jq_filters.push(format!("select(.actor.login == \"{}\")", self.current_user));
+        }
+        if self.branch {
+            jq_filters.push(format!(
+                "select(.head_branch == \"{}\")",
+                self.current_branch
+            ));
+        }
+        jq_filters.push("{id: .id, actor_login: .actor.login, head_branch: .head_branch, repo: .repository.full_name}".to_string());
+        let jq_query = jq_filters.join(" | ");
+        gh_args.push("--jq");
+        gh_args.push(&jq_query);
+        let runs_json_str = self.run_gh_command(&gh_args)?;
 
         let mut gh_runs: Vec<GithubWorkflowRun> = Vec::new();
         for line in runs_json_str.lines() {
