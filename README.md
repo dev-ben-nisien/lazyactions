@@ -13,7 +13,7 @@ While `lazyactions` is designed for quick oversight of your action runs, for mor
 To get `lazyactions` up and running, you'll need:
 
 1.  **GitHub CLI (`gh`):** `lazyactions` utilizes the official GitHub command-line tool to fetch action data.
-2.  **Cargo Package Manager:** As a Rust application, `lazyactions` requires Cargo for installation.
+2.  **Cargo Package Manager:** As a Rust application, `lazyactions` requires Cargo for installation. [rustup](https://rustup.rs/)
 
 ## Installation
 
@@ -26,6 +26,20 @@ cargo install lazyactions
 ## Usage
 
 Simply run lazyactions inside a git repo, with GH CLI authenticated.
+
+```bash
+❯ lazyactions -h
+TUI to monitor GitHub Actions
+
+Usage: lazyactions [OPTIONS]
+
+Options:
+  -b, --branch   Filter for current branch
+  -u, --user     Filter for current user
+  -l, --latest   Lastest Run Only
+  -h, --help     Print help
+  -V, --version  Print version
+```
 
 ## How It Works
 
