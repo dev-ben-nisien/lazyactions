@@ -6,7 +6,6 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Paragraph, Widget, Wrap},
 };
-use regex::Regex;
 use std::collections::BTreeMap; // Using BTreeMap for sorted group keys // Assuming App struct is defined here
 
 impl Widget for &App {
@@ -32,7 +31,7 @@ impl Widget for &App {
             "Showing jobs for: {} | Fetch Status: {}\n\
              Press `Esc`, `Ctrl-C` or `q` to stop running. \n\
              Use `Left`/`Right` to navigate columns, `Up`/`Down` for rows, `PageUp`/`PageDown` for scrolling\n\
-             Press `Enter` to toggle detailed view (logs & full details). Auto-refresh every 5 seconds.",
+             Press `Enter` to toggle more job info, `Backspace` to open GitHub URL. Auto-refresh every 5 seconds.",
             self.job_details
                 .front()
                 .map_or("N/A", |job| job.repo.as_str()),
@@ -51,7 +50,7 @@ impl Widget for &App {
         // --- Render the main application body based on show_details ---
         if self.app_state.show_details {
             // If show_details is true, render the detailed logs and full details panels
-            self.render_detailed_view_panels(main_chunks[1], buf);
+            self.render_detailed_overlay(main_chunks[1], buf);
         } else {
             // Otherwise, render the three job columns
             self.render_job_columns(main_chunks[1], buf);
@@ -272,7 +271,7 @@ impl App {
     }
 
     /// Renders the detailed view with Job Logs and full Job Details in a horizontal split.
-    fn render_detailed_view_panels(&self, area: Rect, buf: &mut Buffer) {
+    fn render_detailed_overlay(&self, area: Rect, buf: &mut Buffer) {
         let detailed_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -281,48 +280,12 @@ impl App {
             ])
             .split(area);
 
-        // Render Job Logs in the top panel
-        self.render_job_logs_panel(detailed_chunks[0], buf);
+        // Render Jobs
+        self.render_job_columns(detailed_chunks[0], buf);
 
         // Render Job Details in the bottom panel
         self.render_full_job_details_panel(detailed_chunks[1], buf);
     }
-
-    /// Renders the scrollable logs panel.
-    fn render_job_logs_panel(&self, area: Rect, buf: &mut Buffer) {
-        let block = Block::default()
-            .title("Job Logs")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Blue));
-
-        let inner_area = block.inner(area);
-        block.render(area, buf);
-
-        let logs = &self.app_state.current_job_logs;
-
-        // Compile regex for stripping timestamps and ANSI escape codes
-        let timestamp_regex = Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s").unwrap();
-        let ansi_regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-
-        let log_lines: Vec<Line> = logs
-            .lines()
-            .map(|s| {
-                // First, remove the timestamp
-                let clean_s = timestamp_regex.replace(s, "").to_string();
-                // Then, remove ANSI escape codes
-                let final_s = ansi_regex.replace_all(&clean_s, "").to_string();
-                Line::from(final_s)
-            })
-            .collect();
-
-        let paragraph = Paragraph::new(log_lines)
-            .scroll((self.app_state.scroll_offset as u16, 0))
-            .wrap(Wrap { trim: false });
-
-        paragraph.render(inner_area, buf);
-    }
-
     /// Renders the full job details panel (used in detailed view).
     fn render_full_job_details_panel(&self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()

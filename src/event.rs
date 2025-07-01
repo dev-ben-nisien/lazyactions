@@ -36,6 +36,7 @@ pub enum AppEvent {
     ToggleDetails,
     PageUp,
     PageDown,
+    OpenGitHub,
 }
 
 /// Terminal event handler.

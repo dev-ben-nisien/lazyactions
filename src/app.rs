@@ -111,16 +111,10 @@ impl App {
                 AppEvent::ToggleDetails => self.toggle_details_panel(),
                 AppEvent::PageDown => self.change_scroll_offset(25),
                 AppEvent::PageUp => self.change_scroll_offset(-25),
+                AppEvent::OpenGitHub => self.open_github(),
             },
         }
         Ok(())
-    }
-    fn get_logs_for_current_job(&self, job_id: u64) -> String {
-        let result = self
-            .gh_cli
-            .fetch_job_logs(job_id)
-            .unwrap_or_else(|_| "Failed to fetch logs".to_string());
-        result
     }
     fn change_column_index(&mut self, delta: isize) {
         if self.app_state.show_details {
@@ -135,6 +129,14 @@ impl App {
         self.app_state.scroll_offset = 0;
 
         self.update_current_job_index_from_state();
+    }
+    fn open_github(&mut self) {
+        if let Some(job) = self.job_details.get(self.current_job_index) {
+            let url = job.html_url.clone();
+            if let Err(e) = open::that(url) {
+                eprintln!("Error opening URL: {}", e);
+            }
+        }
     }
 
     fn change_row_index(&mut self, delta: isize) {
@@ -192,14 +194,7 @@ impl App {
     }
 
     fn toggle_details_panel(&mut self) {
-        if !self.app_state.show_details {
-            self.app_state.loading_status = "Loading job details...".to_string();
-            if let Some(current_job) = self.job_details.get(self.current_job_index) {
-                self.app_state.current_job_logs = self.get_logs_for_current_job(current_job.id);
-            }
-        }
         self.app_state.show_details = !self.app_state.show_details;
-        self.app_state.scroll_offset = 0; // Reset scroll offset when toggling details
     }
 
     /// Handles the key events and updates the state of [`App`].
@@ -216,6 +211,7 @@ impl App {
             KeyCode::Enter => self.events.send(AppEvent::ToggleDetails),
             KeyCode::PageDown => self.events.send(AppEvent::PageDown),
             KeyCode::PageUp => self.events.send(AppEvent::PageUp),
+            KeyCode::Backspace => self.events.send(AppEvent::OpenGitHub),
             _ => {}
         }
         Ok(())

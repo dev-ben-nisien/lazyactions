@@ -274,18 +274,4 @@ impl GhCli {
             jobs: all_jobs,
         })
     }
-
-    /// Fetches the console logs for a specific GitHub Job.
-    /// Returns the raw log content as a string.
-    pub fn fetch_job_logs(&self, job_id: u64) -> color_eyre::Result<String> {
-        self.run_gh_command(&[
-            "api",
-            "-H",
-            "Accept: application/vnd.github.v3+raw", // Request raw content
-            &format!(
-                "/repos/{}/{}/actions/jobs/{}/logs",
-                self.repo_info.owner.login, self.repo_info.name, job_id
-            ),
-        ])
-    }
 }
