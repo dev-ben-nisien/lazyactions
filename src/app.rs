@@ -1,3 +1,4 @@
+use core::prelude::v1;
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
@@ -157,13 +158,10 @@ impl App {
             new_row_index = 0;
         }
         self.app_state.row_index =
-            (new_row_index as usize).min(current_column_jobs.len().saturating_sub(1));
+            (new_row_index as usize).min(current_column_jobs.values().flatten().count().saturating_sub(1));
 
         // Update current_job_index based on the new row and column
         self.update_current_job_index_from_state();
-        if self.app_state.show_details {
-            // If details are shown, fetch logs for the current job
-        }
     }
     fn change_scroll_offset(&mut self, delta: isize) {
         let new_offset = self.app_state.scroll_offset as isize + delta;
@@ -176,12 +174,16 @@ impl App {
 
     fn update_current_job_index_from_state(&mut self) {
         let current_column_jobs_indices = self.get_jobs_for_current_column();
-        let indices: Vec<usize> = current_column_jobs_indices.values().flatten().copied().collect();
+        let indices: Vec<usize> = current_column_jobs_indices
+            .values()
+            .flatten()
+            .copied()
+            .collect();
         if let Some(original_index) = indices.get(self.app_state.row_index) {
             self.current_job_index = *original_index;
         } else {
             // No job selected, default to first available or 0
-            self.current_job_index = indices.first().cloned().unwrap_or(0);
+            self.current_job_index = indices.first().copied().unwrap_or(0);
         }
     }
 
