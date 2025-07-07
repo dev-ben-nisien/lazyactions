@@ -59,12 +59,6 @@ impl Widget for &App {
 }
 
 impl App {
-    // Helper to get the tool from a job name.
-    fn parse_job_name_for_tool(&self, job_name: &str) -> String {
-        let parts: Vec<&str> = job_name.split(" / ").collect();
-        parts.get(0).unwrap_or(&"Other").to_string()
-    }
-
     // Renders the three-column job summary layout
     fn render_job_columns(&self, area: Rect, buf: &mut Buffer) {
         let columns = Layout::default()
@@ -110,7 +104,7 @@ impl App {
         area: Rect,
         buf: &mut Buffer,
         title: &str,
-        job_indices: &[usize],
+        job_indices: &BTreeMap<String, Vec<usize>>,
         border_color: Color,
         column_idx: usize,
     ) {
@@ -145,12 +139,6 @@ impl App {
         }
 
         // Group jobs by their "tool"
-        let mut grouped_jobs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for &original_idx in job_indices {
-            let job = &self.job_details[original_idx];
-            let tool = self.parse_job_name_for_tool(&job.name);
-            grouped_jobs.entry(tool).or_default().push(original_idx);
-        }
 
         let available_height = inner_area.height as usize;
         let mut all_column_lines: Vec<Line> = Vec::new(); // Collect all lines first
@@ -158,7 +146,7 @@ impl App {
         let mut current_column_job_idx = 0; // Tracks the sequential index of jobs within the column (ignoring groups)
 
         // Iterate through grouped jobs to build all lines, including group headers
-        for (tool_name, indices_in_group) in grouped_jobs.iter() {
+        for (tool_name, indices_in_group) in job_indices.iter() {
             // Add group header lines
             all_column_lines.push(Line::from(vec![
                 Span::raw("── "),
@@ -179,7 +167,6 @@ impl App {
             // Add job lines within this group
             for &original_job_idx in indices_in_group {
                 let job = &self.job_details[original_job_idx];
-
                 let status_style = match job.status.as_str() {
                     "completed" => Style::default().fg(Color::Green),
                     "in_progress" => Style::default().fg(Color::Yellow),
@@ -377,16 +364,8 @@ impl App {
             return None;
         }
 
-        // Group jobs by their "tool" to mimic rendering logic
-        let mut grouped_jobs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for &original_idx in job_indices_for_current_column {
-            let job = &self.job_details[original_idx];
-            let tool = self.parse_job_name_for_tool(&job.name);
-            grouped_jobs.entry(tool).or_default().push(original_idx);
-        }
-
         let mut visual_job_counter = 0;
-        for (_tool_name, indices_in_group) in grouped_jobs.iter() {
+        for (_tool_name, indices_in_group) in job_indices_for_current_column.iter() {
             for &original_job_idx in indices_in_group {
                 if visual_job_counter == self.app_state.row_index {
                     return Some(original_job_idx);
@@ -399,12 +378,12 @@ impl App {
 
     /// Helper to get the job indices and color for the currently selected column.
     /// This avoids duplicating logic in get_selected_job_original_index and render_job_list_column.
-    fn get_current_column_data(&self) -> (&[usize], Color) {
+    fn get_current_column_data(&self) -> (&BTreeMap<String, Vec<usize>>, Color) {
         match self.app_state.column_index {
             0 => (&self.app_state.in_progress_jobs, Color::Yellow),
             1 => (&self.app_state.success_jobs, Color::Green),
             2 => (&self.app_state.failure_jobs, Color::Red),
-            _ => (&[], Color::White), // Should not happen
+            _ => (&self.app_state.in_progress_jobs, Color::White), // Should not happen
         }
     }
 }

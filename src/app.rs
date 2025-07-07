@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
     event::{AppEvent, Event, EventHandler},
-    gh_cli::{self},
+    gh_cli::{self, GithubJob},
 };
 use clap::Parser;
 use ratatui::{
@@ -17,7 +17,7 @@ const MAX_DISPLAYED_JOBS: usize = 300;
 #[derive(Debug)]
 pub struct App {
     pub running: bool,
-    pub job_details: VecDeque<crate::gh_cli::GithubJob>,
+    pub job_details: VecDeque<GithubJob>,
     pub current_job_index: usize,
     pub events: EventHandler,
     pub app_state: AppState,
@@ -30,12 +30,12 @@ pub struct AppState {
     pub column_index: usize,
     pub row_index: usize,
     pub show_details: bool,
-    pub in_progress_jobs: Vec<usize>,
-    pub success_jobs: Vec<usize>,
-    pub failure_jobs: Vec<usize>,
+    pub in_progress_jobs: BTreeMap<String, Vec<usize>>,
+    pub success_jobs: BTreeMap<String, Vec<usize>>,
+    pub failure_jobs: BTreeMap<String, Vec<usize>>,
     pub loading_status: String,
     pub scroll_offset: usize,
-    pub current_job_logs: String,
+    pub selected_job: Option<GithubJob>
 }
 
 impl Default for App {
@@ -52,12 +52,12 @@ impl Default for App {
                 column_index: 0,
                 row_index: 0,
                 show_details: false,
-                in_progress_jobs: Vec::new(),
-                success_jobs: Vec::new(),
-                failure_jobs: Vec::new(),
+                in_progress_jobs: BTreeMap::new(),
+                success_jobs: BTreeMap::new(),
+                failure_jobs: BTreeMap::new(),
                 loading_status: "Initializing...".to_string(),
                 scroll_offset: 0,
-                current_job_logs: String::new(),
+                selected_job: None,
             },
             args: args_obj,
         }
@@ -176,15 +176,16 @@ impl App {
 
     fn update_current_job_index_from_state(&mut self) {
         let current_column_jobs_indices = self.get_jobs_for_current_column();
-        if let Some(original_index) = current_column_jobs_indices.get(self.app_state.row_index) {
+        let indices: Vec<usize> = current_column_jobs_indices.values().flatten().copied().collect();
+        if let Some(original_index) = indices.get(self.app_state.row_index) {
             self.current_job_index = *original_index;
         } else {
             // No job selected, default to first available or 0
-            self.current_job_index = current_column_jobs_indices.first().cloned().unwrap_or(0);
+            self.current_job_index = indices.first().cloned().unwrap_or(0);
         }
     }
 
-    fn get_jobs_for_current_column(&self) -> &Vec<usize> {
+    fn get_jobs_for_current_column(&self) -> &BTreeMap<String, Vec<usize>> {
         match self.app_state.column_index {
             0 => &self.app_state.in_progress_jobs,
             1 => &self.app_state.success_jobs,
@@ -252,19 +253,21 @@ impl App {
             b.started_at.cmp(&a.started_at) // Sort descending
         });
 
+
         for (original_index, job) in sorted_jobs {
+            let tool = self.parse_job_name_for_tool(&job.name);
             match job.status.as_str() {
                 "completed" => {
                     if let Some(conclusion) = &job.conclusion {
                         match conclusion.as_str() {
-                            "success" => self.app_state.success_jobs.push(original_index),
-                            "failure" => self.app_state.failure_jobs.push(original_index),
+                            "success" => self.app_state.success_jobs.entry(tool).or_default().push(original_index),
+                            "failure" => self.app_state.success_jobs.entry(tool).or_default().push(original_index),
                             _ => { /* Ignore cancelled, skipped, etc. as per request */ }
                         }
                     }
                 }
                 "in_progress" | "queued" | "waiting" => {
-                    self.app_state.in_progress_jobs.push(original_index)
+                    self.app_state.in_progress_jobs.entry(tool).or_default().push(original_index)
                 }
                 _ => { /* Ignore other statuses if any */ }
             }
@@ -272,5 +275,9 @@ impl App {
 
         // Ensure current_job_index is valid after update and re-filtering
         self.update_current_job_index_from_state();
+    }
+    pub fn parse_job_name_for_tool(&self, job_name: &str) -> String {
+        let parts: Vec<&str> = job_name.split(" / ").collect();
+        parts.get(0).unwrap_or(&"Other").to_string()
     }
 }
