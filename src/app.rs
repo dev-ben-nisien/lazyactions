@@ -261,7 +261,7 @@ impl App {
                     if let Some(conclusion) = &job.conclusion {
                         match conclusion.as_str() {
                             "success" => self.app_state.success_jobs.entry(tool).or_default().push(original_index),
-                            "failure" => self.app_state.success_jobs.entry(tool).or_default().push(original_index),
+                            "failure" => self.app_state.failure_jobs.entry(tool).or_default().push(original_index),
                             _ => { /* Ignore cancelled, skipped, etc. as per request */ }
                         }
                     }

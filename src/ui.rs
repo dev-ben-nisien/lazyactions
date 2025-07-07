@@ -109,10 +109,9 @@ impl App {
         column_idx: usize,
     ) {
         let is_selected_column = self.app_state.column_index == column_idx;
-
         let block =
             Block::default()
-                .title(format!("{} ({})", title, job_indices.len()))
+                .title(format!("{} ({})", title, job_indices.iter().map(|(_, v)| v.len()).sum::<usize>()))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(border_color).add_modifier(
